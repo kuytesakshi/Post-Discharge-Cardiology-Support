@@ -3,7 +3,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.enums import UserRole
 from app.schemas.role import RoleRead
 
 
@@ -14,7 +13,6 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(min_length=8, max_length=128)
-    role: UserRole = UserRole.PATIENT
 
 
 class UserUpdate(BaseModel):

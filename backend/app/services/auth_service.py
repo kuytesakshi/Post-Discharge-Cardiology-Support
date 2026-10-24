@@ -1,37 +1,13 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import hash_password, verify_password
-from app.models import DoctorProfile, PatientProfile, Role, User, UserRole
-from app.schemas.user import UserCreate
+from app.core.security import verify_password
+from app.models import User
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     result = await db.execute(select(User).where(User.email == email.lower()))
     return result.scalar_one_or_none()
-
-
-async def create_user(db: AsyncSession, payload: UserCreate) -> User:
-    role = await db.scalar(select(Role).where(Role.name == payload.role.value))
-    if role is None:
-        raise ValueError(f"Role '{payload.role.value}' is not configured")
-
-    user = User(
-        email=payload.email.lower(),
-        hashed_password=hash_password(payload.password),
-        name=payload.name,
-        role=role,
-    )
-    if payload.role is UserRole.PATIENT:
-        user.patient_profile = PatientProfile()
-    elif payload.role is UserRole.DOCTOR:
-        user.doctor_profile = DoctorProfile()
-
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-    await db.refresh(user, ["role"])
-    return user
 
 
 async def authenticate_user(db: AsyncSession, email: str, password: str) -> User | None:

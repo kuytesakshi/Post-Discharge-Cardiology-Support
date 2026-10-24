@@ -7,7 +7,7 @@ from app.api.deps import CurrentUser, DbSession
 from app.core.security import create_access_token, create_refresh_token, decode_token
 from app.models import User
 from app.schemas.auth import LoginRequest, RefreshRequest, TokenPair
-from app.schemas.user import UserCreate, UserRead
+from app.schemas.user import UserRead
 from app.services import auth_service
 
 router = APIRouter()
@@ -19,28 +19,6 @@ def build_token_pair(user: User) -> TokenPair:
         access_token=create_access_token(subject),
         refresh_token=create_refresh_token(subject),
     )
-
-
-@router.post(
-    "/register",
-    response_model=UserRead,
-    status_code=status.HTTP_201_CREATED,
-)
-async def register(payload: UserCreate, db: DbSession) -> User:
-    existing_user = await auth_service.get_user_by_email(db, payload.email)
-    if existing_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email is already registered",
-        )
-
-    try:
-        return await auth_service.create_user(db, payload)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
 
 
 @router.post("/login", response_model=TokenPair)

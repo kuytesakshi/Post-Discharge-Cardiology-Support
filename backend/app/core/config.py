@@ -36,6 +36,11 @@ class Settings(BaseSettings):
 
     EMBEDDING_DIMENSION: int = 1536
 
+    SEED_ADMIN: bool = False
+    ADMIN_NAME: str = "System Administrator"
+    ADMIN_EMAIL: str = "admin@cardio.example"
+    ADMIN_PASSWORD: str | None = None
+
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: str | list[str]) -> list[str]:
