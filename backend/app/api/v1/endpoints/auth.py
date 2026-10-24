@@ -33,7 +33,14 @@ async def register(payload: UserCreate, db: DbSession) -> User:
             status_code=status.HTTP_409_CONFLICT,
             detail="Email is already registered",
         )
-    return await auth_service.create_user(db, payload)
+
+    try:
+        return await auth_service.create_user(db, payload)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post("/login", response_model=TokenPair)

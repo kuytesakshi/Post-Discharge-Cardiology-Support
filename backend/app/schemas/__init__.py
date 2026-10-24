@@ -7,6 +7,7 @@ from app.schemas.auth import LoginRequest, RefreshRequest, TokenPair
 from app.schemas.doctor import DoctorProfileRead, DoctorProfileUpdate, DoctorPublic
 from app.schemas.patient import PatientProfileRead, PatientProfileUpdate
 from app.schemas.query import PatientQueryCreate, PatientQueryRead, QueryAnswer
+from app.schemas.role import RoleRead
 from app.schemas.user import UserCreate, UserRead, UserUpdate
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "PatientQueryRead",
     "QueryAnswer",
     "RefreshRequest",
+    "RoleRead",
     "TokenPair",
     "UserCreate",
     "UserRead",

@@ -13,7 +13,7 @@ import type { TokenPair, User, UserRole } from "@/types";
 
 export function RegisterForm() {
   const router = useRouter();
-  const [fullName, setFullName] = useState("");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<UserRole>("patient");
@@ -29,7 +29,7 @@ export function RegisterForm() {
       await apiFetch<User>("/auth/register", {
         method: "POST",
         body: JSON.stringify({
-          full_name: fullName,
+          name,
           email,
           password,
           role,
@@ -53,20 +53,20 @@ export function RegisterForm() {
     <form onSubmit={handleSubmit} className="space-y-5">
       <div className="space-y-1.5">
         <label
-          htmlFor="fullName"
+          htmlFor="name"
           className="block text-sm font-medium text-slate-700"
         >
           Full name
         </label>
         <Input
-          id="fullName"
-          name="fullName"
+          id="name"
+          name="name"
           type="text"
           autoComplete="name"
           required
           minLength={2}
-          value={fullName}
-          onChange={(event) => setFullName(event.target.value)}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
           placeholder="Dr. Jane Doe"
         />
       </div>

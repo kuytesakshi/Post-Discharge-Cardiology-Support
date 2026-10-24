@@ -4,11 +4,12 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.enums import UserRole
+from app.schemas.role import RoleRead
 
 
 class UserBase(BaseModel):
+    name: str = Field(min_length=2, max_length=255)
     email: EmailStr
-    full_name: str = Field(min_length=2, max_length=255)
 
 
 class UserCreate(UserBase):
@@ -17,7 +18,7 @@ class UserCreate(UserBase):
 
 
 class UserUpdate(BaseModel):
-    full_name: str | None = Field(default=None, min_length=2, max_length=255)
+    name: str | None = Field(default=None, min_length=2, max_length=255)
     email: EmailStr | None = None
 
 
@@ -25,6 +26,6 @@ class UserRead(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    role: UserRole
+    role: RoleRead
     is_active: bool
     created_at: datetime

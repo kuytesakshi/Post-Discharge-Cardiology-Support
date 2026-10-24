@@ -30,7 +30,7 @@ export function LoginForm() {
       setTokens(tokens);
       const user = await apiFetch<User>("/auth/me");
       router.push(
-        user.role === "doctor" ? "/doctor/dashboard" : "/patient/dashboard",
+        user.role.name === "doctor" ? "/doctor/dashboard" : "/patient/dashboard",
       );
       router.refresh();
     } catch (err) {

@@ -4,6 +4,7 @@ from app.models.enums import AppointmentStatus, QueryStatus, UserRole
 from app.models.knowledge import KnowledgeChunk, KnowledgeDocument
 from app.models.patient import PatientProfile
 from app.models.query import PatientQuery
+from app.models.role import Role
 from app.models.user import User
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "PatientProfile",
     "PatientQuery",
     "QueryStatus",
+    "Role",
     "User",
     "UserRole",
 ]
