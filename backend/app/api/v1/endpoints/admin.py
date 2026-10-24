@@ -34,12 +34,16 @@ async def _ensure_email_available(db: DbSession, email: str) -> None:
 async def create_patient(
     payload: AdminPatientCreate,
     db: DbSession,
-    _: AdminUser,
+    current_admin: AdminUser,
 ) -> AdminPatientRead:
     await _ensure_email_available(db, payload.email)
 
     try:
-        user = await admin_service.create_patient(db, payload)
+        user = await admin_service.create_patient(
+            db,
+            payload,
+            created_by_id=current_admin.id,
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -57,12 +61,16 @@ async def create_patient(
 async def create_doctor(
     payload: AdminDoctorCreate,
     db: DbSession,
-    _: AdminUser,
+    current_admin: AdminUser,
 ) -> AdminDoctorRead:
     await _ensure_email_available(db, payload.email)
 
     try:
-        user = await admin_service.create_doctor(db, payload)
+        user = await admin_service.create_doctor(
+            db,
+            payload,
+            created_by_id=current_admin.id,
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

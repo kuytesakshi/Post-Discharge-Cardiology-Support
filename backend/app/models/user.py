@@ -38,9 +38,11 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         back_populates="user",
         cascade="all, delete-orphan",
         uselist=False,
+        foreign_keys="PatientProfile.user_id",
     )
     doctor_profile: Mapped[DoctorProfile | None] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         uselist=False,
+        foreign_keys="DoctorProfile.user_id",
     )
