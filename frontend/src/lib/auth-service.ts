@@ -1,6 +1,5 @@
 import { apiFetch } from "@/lib/api";
 import { clearTokens, setMockUser, setTokens } from "@/lib/auth";
-import { isMockMode, mockLogin } from "@/lib/mock";
 import { getRoleLabel } from "@/lib/roles";
 import type { TokenPair, User, UserRole } from "@/types";
 
@@ -10,12 +9,17 @@ type LoginInput = {
   role: UserRole;
 };
 
+const isMockMode =
+  process.env.NEXT_PUBLIC_MOCK === "true" ||
+  process.env.NEXT_PUBLIC_MOCK === "1";
+
 export async function loginWithRole({
   email,
   password,
   role,
 }: LoginInput): Promise<User> {
   if (isMockMode) {
+    const { mockLogin } = await import("@/lib/mock");
     const { tokens, user } = mockLogin(email, password, role);
     setTokens(tokens);
     setMockUser(user);

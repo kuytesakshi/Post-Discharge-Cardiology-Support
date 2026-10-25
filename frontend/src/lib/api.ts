@@ -1,7 +1,8 @@
 import { getAccessToken } from "@/lib/auth";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1"
+).replace(/\/$/, "");
 
 export class ApiError extends Error {
   status: number;
@@ -27,15 +28,36 @@ export async function apiFetch<T>(
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch {
+    throw new ApiError(
+      "Unable to reach the server. Check your connection and try again.",
+      0,
+    );
+  }
 
   if (!response.ok) {
-    const data = await response.json().catch(() => null);
+    const data = (await response.json().catch(() => null)) as {
+      detail?: unknown;
+    } | null;
+    const detail = data?.detail;
     const message =
-      typeof data?.detail === "string" ? data.detail : response.statusText;
+      typeof detail === "string"
+        ? detail
+        : Array.isArray(detail)
+          ? detail
+              .map((item) =>
+                typeof item?.msg === "string" ? item.msg : undefined,
+              )
+              .filter(Boolean)
+              .join(" ")
+          : response.statusText;
     throw new ApiError(message || "Request failed", response.status);
   }
 
