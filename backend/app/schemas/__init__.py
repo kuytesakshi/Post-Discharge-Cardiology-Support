@@ -1,8 +1,17 @@
 from app.schemas.admin import (
+    AdminDashboardRead,
     AdminDoctorCreate,
     AdminDoctorRead,
     AdminPatientCreate,
     AdminPatientRead,
+    DashboardActivity,
+    DashboardAlert,
+    DashboardAppointment,
+    DashboardDoctor,
+    DashboardMetric,
+    DashboardPatient,
+    FollowUpPoint,
+    RiskSlice,
 )
 from app.schemas.appointment import (
     AppointmentCreate,
@@ -17,11 +26,20 @@ from app.schemas.role import RoleRead
 from app.schemas.user import UserCreate, UserRead, UserUpdate
 
 __all__ = [
+    "AdminDashboardRead",
     "AdminDoctorCreate",
     "AdminDoctorRead",
     "AdminPatientCreate",
     "AdminPatientRead",
     "AppointmentCreate",
+    "DashboardActivity",
+    "DashboardAlert",
+    "DashboardAppointment",
+    "DashboardDoctor",
+    "DashboardMetric",
+    "DashboardPatient",
+    "FollowUpPoint",
+    "RiskSlice",
     "AppointmentRead",
     "AppointmentStatusUpdate",
     "DoctorProfileRead",

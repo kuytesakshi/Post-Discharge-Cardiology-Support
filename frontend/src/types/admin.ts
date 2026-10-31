@@ -17,7 +17,7 @@ export type PatientStatus = "on_track" | "needs_attention" | "overdue";
 export interface AdminPatient {
   id: string;
   name: string;
-  age: number;
+  age: number | null;
   condition: string;
   risk: RiskLevel;
   doctor: string;
@@ -42,7 +42,7 @@ export interface AdminAppointment {
   patient: string;
   doctor: string;
   type: string;
-  status: "confirmed" | "pending" | "completed";
+  status: "pending" | "confirmed" | "completed" | "cancelled" | "no_show";
 }
 
 export type AlertSeverity = "high" | "medium" | "low";
@@ -80,6 +80,7 @@ export interface AdminDashboardData {
   adminName: string;
   displayDate: string;
   lastUpdated: string;
+  generatedAt?: string;
   metrics: AdminMetric[];
   followUpSeries: FollowUpPoint[];
   riskMix: RiskSlice[];

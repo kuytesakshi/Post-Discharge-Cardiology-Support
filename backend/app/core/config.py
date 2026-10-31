@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@cardio.example"
     ADMIN_PASSWORD: str | None = None
 
+    SEED_DEMO: bool = False
+    DEMO_PASSWORD: str = "Demo@12345"
+
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: str | list[str]) -> list[str]:

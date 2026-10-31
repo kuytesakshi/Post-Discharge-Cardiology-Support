@@ -6,15 +6,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.db.seed import seed_admin
+from app.db.seed import seed_admin, seed_demo
 from app.db.session import async_session_factory, engine
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    if settings.SEED_ADMIN:
+    if settings.SEED_ADMIN or settings.SEED_DEMO:
         async with async_session_factory() as session:
             await seed_admin(session)
+            await seed_demo(session)
     yield
     await engine.dispose()
 

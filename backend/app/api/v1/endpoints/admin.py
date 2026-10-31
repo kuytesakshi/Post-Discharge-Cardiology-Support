@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.api.deps import DbSession, require_roles
 from app.models import User, UserRole
 from app.schemas.admin import (
+    AdminDashboardRead,
     AdminDoctorCreate,
     AdminDoctorRead,
     AdminPatientCreate,
@@ -24,6 +25,14 @@ async def _ensure_email_available(db: DbSession, email: str) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail="Email is already registered",
         )
+
+
+@router.get("/dashboard", response_model=AdminDashboardRead)
+async def read_dashboard(
+    db: DbSession,
+    current_admin: AdminUser,
+) -> AdminDashboardRead:
+    return await admin_service.get_dashboard(db, current_admin)
 
 
 @router.post(

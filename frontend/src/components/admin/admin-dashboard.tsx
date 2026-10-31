@@ -1,11 +1,16 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
   AlertTriangleIcon,
   ArrowUpRightIcon,
   CalendarIcon,
+  CheckIcon,
   ChevronRightIcon,
   ClockIcon,
   HeartPulseIcon,
@@ -17,18 +22,22 @@ import {
   UserPlusIcon,
   UsersIcon,
 } from "@/components/ui/icons";
+import { getAdminDashboard } from "@/lib/admin-api";
+import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { adminDashboardMock } from "@/mocks/admin-dashboard";
 import type {
+  AdminActivity,
   AdminAlert,
   AdminAppointment,
+  AdminDashboardData,
   AdminDoctor,
   AdminMetric,
   AdminPatient,
   FollowUpPoint,
   MetricTone,
-  RiskLevel,
   PatientStatus,
+  RiskLevel,
+  RiskSlice,
 } from "@/types/admin";
 
 const metricToneClasses: Record<
@@ -85,11 +94,21 @@ const statusLabel: Record<PatientStatus, string> = {
 
 const appointmentTone: Record<
   AdminAppointment["status"],
-  "green" | "amber" | "slate"
+  "green" | "amber" | "slate" | "red"
 > = {
   confirmed: "green",
   pending: "amber",
   completed: "slate",
+  cancelled: "red",
+  no_show: "red",
+};
+
+const appointmentLabel: Record<AdminAppointment["status"], string> = {
+  confirmed: "Confirmed",
+  pending: "Pending",
+  completed: "Completed",
+  cancelled: "Cancelled",
+  no_show: "No show",
 };
 
 const availabilityTone: Record<
@@ -214,7 +233,14 @@ function MetricCard({ metric, index }: { metric: AdminMetric; index: number }) {
   );
 }
 
-function DashboardHero() {
+function DashboardHero({ data }: { data: AdminDashboardData }) {
+  const followUps =
+    data.metrics.find((metric) => metric.label === "Follow-ups today")?.value ??
+    "0";
+  const highRisk =
+    data.metrics.find((metric) => metric.label === "High-risk patients")
+      ?.value ?? "0";
+
   return (
     <section className="relative overflow-hidden rounded-3xl bg-brand-deep p-6 text-white shadow-[0_30px_80px_-48px_rgba(4,47,46,0.8)] sm:p-8">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_20%,rgba(45,212,191,0.2),transparent_32%),radial-gradient(circle_at_88%_80%,rgba(251,113,133,0.14),transparent_30%)]" />
@@ -228,16 +254,16 @@ function DashboardHero() {
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 shadow-[0_0_10px_rgba(110,231,183,0.9)]" />
               Care signal stable
             </span>
-            <span>{adminDashboardMock.displayDate}</span>
+            <span>{data.displayDate}</span>
           </div>
 
           <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">
-            Good morning, {adminDashboardMock.adminName}.
+            Good morning, {data.adminName}.
           </h1>
           <p className="mt-3 max-w-xl text-sm leading-6 text-emerald-50/65">
-            Here&apos;s the pulse of your post-discharge program today. You have
-            12 follow-ups, 7 high-risk patients, and 5 unread queries to keep an
-            eye on.
+            Here&apos;s the pulse of your post-discharge program today. You have{" "}
+            {followUps} follow-ups, {highRisk} high-risk patients, and{" "}
+            {data.alerts.length} items needing attention.
           </p>
         </div>
 
@@ -269,12 +295,12 @@ function DashboardHero() {
       <div className="relative mt-6 flex flex-wrap items-center gap-3 border-t border-white/10 pt-5 text-[11px] text-emerald-50/55">
         <span className="flex items-center gap-1.5">
           <ClockIcon className="h-3.5 w-3.5" />
-          Updated {adminDashboardMock.lastUpdated}
+          Updated {data.lastUpdated}
         </span>
         <span className="h-1 w-1 rounded-full bg-emerald-300/50" />
-        <span>12 follow-ups today</span>
+        <span>{followUps} follow-ups today</span>
         <span className="h-1 w-1 rounded-full bg-emerald-300/50" />
-        <span>7 high-risk patients</span>
+        <span>{highRisk} high-risk patients</span>
       </div>
     </section>
   );
@@ -286,40 +312,50 @@ function buildLinePath(
   width: number,
   height: number,
   max: number,
+  paddingX: number,
 ) {
+  const plotWidth = width - paddingX * 2;
   return series
     .map((point, index) => {
-      const x = (index / Math.max(series.length - 1, 1)) * width;
+      const x =
+        paddingX + (index / Math.max(series.length - 1, 1)) * plotWidth;
       const y = height - (point[key] / max) * height;
       return `${index === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(" ");
 }
 
-function FollowUpChart() {
+function FollowUpChart({ series }: { series: FollowUpPoint[] }) {
   const width = 560;
   const height = 160;
-  const max = 40;
+  const paddingX = 18;
+  const peak = Math.max(
+    ...series.flatMap((point) => [point.completed, point.scheduled]),
+    1,
+  );
+  const max = Math.max(4, Math.ceil(peak / 2) * 2);
   const completedPath = buildLinePath(
-    adminDashboardMock.followUpSeries,
+    series,
     "completed",
     width,
     height,
     max,
+    paddingX,
   );
   const scheduledPath = buildLinePath(
-    adminDashboardMock.followUpSeries,
+    series,
     "scheduled",
     width,
     height,
     max,
+    paddingX,
   );
-  const completedArea = `${completedPath} L${width} ${height} L0 ${height} Z`;
-  const totalCompleted = adminDashboardMock.followUpSeries.reduce(
+  const completedArea = `${completedPath} L${width - paddingX} ${height} L${paddingX} ${height} Z`;
+  const totalCompleted = series.reduce(
     (total, point) => total + point.completed,
     0,
   );
-  const totalScheduled = adminDashboardMock.followUpSeries.reduce(
+  const totalScheduled = series.reduce(
     (total, point) => total + point.scheduled,
     0,
   );
@@ -399,8 +435,11 @@ function FollowUpChart() {
             strokeLinejoin="round"
           />
 
-          {adminDashboardMock.followUpSeries.map((point, index) => {
-            const x = (index / Math.max(adminDashboardMock.followUpSeries.length - 1, 1)) * width;
+          {series.map((point, index) => {
+            const x =
+              paddingX +
+              (index / Math.max(series.length - 1, 1)) *
+                (width - paddingX * 2);
             const y = height - (point.completed / max) * height;
             return (
               <circle
@@ -415,8 +454,11 @@ function FollowUpChart() {
             );
           })}
 
-          {adminDashboardMock.followUpSeries.map((point, index) => {
-            const x = (index / Math.max(adminDashboardMock.followUpSeries.length - 1, 1)) * width;
+          {series.map((point, index) => {
+            const x =
+              paddingX +
+              (index / Math.max(series.length - 1, 1)) *
+                (width - paddingX * 2);
             return (
               <text
                 key={point.label}
@@ -436,12 +478,18 @@ function FollowUpChart() {
   );
 }
 
-function RiskMix() {
+function RiskMix({
+  riskMix,
+  totalPatients,
+}: {
+  riskMix: RiskSlice[];
+  totalPatients: number;
+}) {
   const radius = 42;
   const circumference = 2 * Math.PI * radius;
-  const segments = adminDashboardMock.riskMix.map((slice, index) => {
+  const segments = riskMix.map((slice, index) => {
     const length = (slice.value / 100) * circumference;
-    const offset = adminDashboardMock.riskMix
+    const offset = riskMix
       .slice(0, index)
       .reduce(
         (total, previous) => total + (previous.value / 100) * circumference,
@@ -494,7 +542,7 @@ function RiskMix() {
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <p className="text-2xl font-semibold tracking-[-0.04em] text-ink">
-              248
+              {totalPatients}
             </p>
             <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">
               Patients
@@ -503,7 +551,7 @@ function RiskMix() {
         </div>
 
         <ul className="min-w-0 flex-1 space-y-3">
-          {adminDashboardMock.riskMix.map((slice) => (
+          {riskMix.map((slice) => (
             <li key={slice.label} className="flex items-center gap-2.5">
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -522,7 +570,7 @@ function RiskMix() {
 
       <div className="mt-5 flex items-center gap-2 rounded-xl bg-emerald-50/70 px-3 py-2 text-[11px] text-emerald-700">
         <TrendingDownIcon className="h-3.5 w-3.5" />
-        High-risk cohort down 1 this week
+        Calculated from current readmission risk scores
       </div>
     </Card>
   );
@@ -537,7 +585,15 @@ function patientInitials(name: string) {
     .join("");
 }
 
-function RecentPatients() {
+function EmptyPanel({ message }: { message: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center text-xs text-slate-500">
+      {message}
+    </div>
+  );
+}
+
+function RecentPatients({ patients }: { patients: AdminPatient[] }) {
   return (
     <Card className="rounded-2xl border-slate-200/80 bg-white p-5 shadow-[0_18px_50px_-38px_rgba(4,47,46,0.35)]">
       <div className="flex items-center justify-between gap-3">
@@ -559,22 +615,26 @@ function RecentPatients() {
       </div>
 
       <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[640px] text-left">
-          <thead>
-            <tr className="border-b border-slate-100 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-              <th className="pb-2.5 pr-3 font-semibold">Patient</th>
-              <th className="pb-2.5 pr-3 font-semibold">Risk</th>
-              <th className="pb-2.5 pr-3 font-semibold">Care team</th>
-              <th className="pb-2.5 pr-3 font-semibold">Next follow-up</th>
-              <th className="pb-2.5 font-semibold">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {adminDashboardMock.recentPatients.map((patient) => (
-              <PatientRow key={patient.id} patient={patient} />
-            ))}
-          </tbody>
-        </table>
+        {patients.length ? (
+          <table className="w-full min-w-[640px] text-left">
+            <thead>
+              <tr className="border-b border-slate-100 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                <th className="pb-2.5 pr-3 font-semibold">Patient</th>
+                <th className="pb-2.5 pr-3 font-semibold">Risk</th>
+                <th className="pb-2.5 pr-3 font-semibold">Care team</th>
+                <th className="pb-2.5 pr-3 font-semibold">Next follow-up</th>
+                <th className="pb-2.5 font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {patients.map((patient) => (
+                <PatientRow key={patient.id} patient={patient} />
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <EmptyPanel message="No patients have been enrolled yet." />
+        )}
       </div>
     </Card>
   );
@@ -591,7 +651,8 @@ function PatientRow({ patient }: { patient: AdminPatient }) {
           <div className="min-w-0">
             <p className="truncate font-semibold text-ink">{patient.name}</p>
             <p className="mt-0.5 truncate text-[10px] text-slate-400">
-              {patient.age} yrs · {patient.condition}
+              {patient.age !== null ? `${patient.age} yrs · ` : ""}
+              {patient.condition}
             </p>
           </div>
         </div>
@@ -614,7 +675,11 @@ function PatientRow({ patient }: { patient: AdminPatient }) {
   );
 }
 
-function TodaySchedule() {
+function TodaySchedule({
+  appointments,
+}: {
+  appointments: AdminAppointment[];
+}) {
   return (
     <Card className="rounded-2xl border-slate-200/80 bg-white p-5 shadow-[0_18px_50px_-38px_rgba(4,47,46,0.35)]">
       <div className="flex items-center justify-between gap-3">
@@ -623,7 +688,7 @@ function TodaySchedule() {
             Today&apos;s schedule
           </h2>
           <p className="mt-1 text-xs text-slate-500">
-            4 visits across the care team
+            {appointments.length} visits across the care team
           </p>
         </div>
         <Link
@@ -636,38 +701,48 @@ function TodaySchedule() {
       </div>
 
       <div className="mt-4 space-y-2.5">
-        {adminDashboardMock.appointments.map((appointment, index) => (
-          <div
-            key={appointment.id}
-            className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 transition hover:border-slate-200 hover:bg-slate-50"
-          >
-            <div className="w-11 shrink-0">
-              <p className="text-xs font-semibold text-ink">
-                {appointment.time}
-              </p>
-              <p className="mt-0.5 text-[9px] uppercase tracking-[0.12em] text-slate-400">
-                {index === 0 ? "Next" : "Today"}
-              </p>
+        {appointments.length ? (
+          appointments.map((appointment, index) => (
+            <div
+              key={appointment.id}
+              className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 transition hover:border-slate-200 hover:bg-slate-50"
+            >
+              <div className="w-11 shrink-0">
+                <p className="text-xs font-semibold text-ink">
+                  {appointment.time}
+                </p>
+                <p className="mt-0.5 text-[9px] uppercase tracking-[0.12em] text-slate-400">
+                  {index === 0 ? "Next" : "Today"}
+                </p>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-semibold text-ink">
+                  {appointment.patient}
+                </p>
+                <p className="mt-0.5 truncate text-[10px] text-slate-500">
+                  {appointment.type} · {appointment.doctor}
+                </p>
+              </div>
+              <Badge tone={appointmentTone[appointment.status]}>
+                {appointmentLabel[appointment.status]}
+              </Badge>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-semibold text-ink">
-                {appointment.patient}
-              </p>
-              <p className="mt-0.5 truncate text-[10px] text-slate-500">
-                {appointment.type} · {appointment.doctor}
-              </p>
-            </div>
-            <Badge tone={appointmentTone[appointment.status]}>
-              {appointment.status}
-            </Badge>
-          </div>
-        ))}
+          ))
+        ) : (
+          <EmptyPanel message="No visits are scheduled for today." />
+        )}
       </div>
     </Card>
   );
 }
 
-function CareTeam() {
+function CareTeam({
+  careTeam,
+  totalDoctors,
+}: {
+  careTeam: AdminDoctor[];
+  totalDoctors: number;
+}) {
   return (
     <Card className="rounded-2xl border-slate-200/80 bg-white p-5 shadow-[0_18px_50px_-38px_rgba(4,47,46,0.35)]">
       <div className="flex items-center justify-between gap-3">
@@ -676,7 +751,7 @@ function CareTeam() {
             Care team
           </h2>
           <p className="mt-1 text-xs text-slate-500">
-            18 doctors · 4 shown
+            {totalDoctors} doctors · {careTeam.length} shown
           </p>
         </div>
         <Link
@@ -689,33 +764,39 @@ function CareTeam() {
       </div>
 
       <ul className="mt-4 space-y-2.5">
-        {adminDashboardMock.careTeam.map((doctor) => (
-          <li
-            key={doctor.id}
-            className="flex items-center gap-3 rounded-xl border border-slate-100 p-2.5 transition hover:border-slate-200 hover:bg-slate-50/70"
-          >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand to-emerald-500 text-[10px] font-semibold text-white">
-              {doctor.initials}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-semibold text-ink">
-                {doctor.name}
-              </p>
-              <p className="mt-0.5 truncate text-[10px] text-slate-400">
-                {doctor.specialty} · {doctor.patients} patients
-              </p>
-            </div>
-            <Badge tone={availabilityTone[doctor.availability]}>
-              {availabilityLabel[doctor.availability]}
-            </Badge>
+        {careTeam.length ? (
+          careTeam.map((doctor) => (
+            <li
+              key={doctor.id}
+              className="flex items-center gap-3 rounded-xl border border-slate-100 p-2.5 transition hover:border-slate-200 hover:bg-slate-50/70"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand to-emerald-500 text-[10px] font-semibold text-white">
+                {doctor.initials}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-semibold text-ink">
+                  {doctor.name}
+                </p>
+                <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                  {doctor.specialty} · {doctor.patients} patients
+                </p>
+              </div>
+              <Badge tone={availabilityTone[doctor.availability]}>
+                {availabilityLabel[doctor.availability]}
+              </Badge>
+            </li>
+          ))
+        ) : (
+          <li>
+            <EmptyPanel message="No doctors have been added yet." />
           </li>
-        ))}
+        )}
       </ul>
     </Card>
   );
 }
 
-function AttentionNeeded() {
+function AttentionNeeded({ alerts }: { alerts: AdminAlert[] }) {
   return (
     <Card className="rounded-2xl border-slate-200/80 bg-white p-5 shadow-[0_18px_50px_-38px_rgba(4,47,46,0.35)]">
       <div className="flex items-center justify-between gap-3">
@@ -728,50 +809,63 @@ function AttentionNeeded() {
           </p>
         </div>
         <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-rose-50 px-2 text-[10px] font-semibold text-rose-600 ring-1 ring-inset ring-rose-600/15">
-          {adminDashboardMock.alerts.length}
+          {alerts.length}
         </span>
       </div>
 
-      <ul className="mt-4 space-y-2.5">
-        {adminDashboardMock.alerts.map((alert) => (
-          <li
-            key={alert.id}
-            className={cn(
-              "rounded-xl border p-3",
-              alert.severity === "high"
-                ? "border-rose-100 bg-rose-50/60"
-                : "border-amber-100 bg-amber-50/60",
-            )}
-          >
-            <div className="flex items-start gap-2.5">
-              <AlertTriangleIcon
-                className={cn(
-                  "mt-0.5 h-4 w-4 shrink-0",
-                  alert.severity === "high" ? "text-rose-500" : "text-amber-500",
-                )}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-ink">{alert.title}</p>
-                <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                  {alert.description}
-                </p>
-                <Link
-                  href={alert.href}
-                  className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-brand transition hover:text-brand-deep"
-                >
-                  {alert.actionLabel}
-                  <ArrowUpRightIcon className="h-3 w-3" />
-                </Link>
+      {alerts.length ? (
+        <ul className="mt-4 space-y-2.5">
+          {alerts.map((alert) => (
+            <li
+              key={alert.id}
+              className={cn(
+                "rounded-xl border p-3",
+                alert.severity === "high" && "border-rose-100 bg-rose-50/60",
+                alert.severity === "medium" && "border-amber-100 bg-amber-50/60",
+                alert.severity === "low" && "border-teal-100 bg-teal-50/60",
+              )}
+            >
+              <div className="flex items-start gap-2.5">
+                <AlertTriangleIcon
+                  className={cn(
+                    "mt-0.5 h-4 w-4 shrink-0",
+                    alert.severity === "high"
+                      ? "text-rose-500"
+                      : alert.severity === "medium"
+                        ? "text-amber-500"
+                        : "text-teal-500",
+                  )}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-ink">
+                    {alert.title}
+                  </p>
+                  <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                    {alert.description}
+                  </p>
+                  <Link
+                    href={alert.href}
+                    className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-brand transition hover:text-brand-deep"
+                  >
+                    {alert.actionLabel}
+                    <ArrowUpRightIcon className="h-3 w-3" />
+                  </Link>
+                </div>
               </div>
-            </div>
-          </li>
-        ))}
-      </ul>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="mt-4 flex items-center gap-2 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/60 px-3 py-4 text-[11px] text-emerald-700">
+          <CheckIcon className="h-4 w-4" />
+          You&apos;re all caught up. No urgent items right now.
+        </div>
+      )}
     </Card>
   );
 }
 
-function ActivityFeed() {
+function ActivityFeed({ activity }: { activity: AdminActivity[] }) {
   return (
     <Card className="rounded-2xl border-slate-200/80 bg-white p-5 shadow-[0_18px_50px_-38px_rgba(4,47,46,0.35)]">
       <div className="flex items-center justify-between gap-3">
@@ -786,58 +880,179 @@ function ActivityFeed() {
         <MessageSquareIcon className="h-4 w-4 text-slate-300" />
       </div>
 
-      <ol className="mt-4 space-y-0">
-        {adminDashboardMock.activity.map((item, index) => (
-          <li key={item.id} className="relative flex gap-3 pb-4 last:pb-0">
-            {index < adminDashboardMock.activity.length - 1 ? (
-              <span className="absolute left-[5px] top-3 h-full w-px bg-slate-100" />
-            ) : null}
-            <span
-              className={cn(
-                "relative mt-1 h-2.5 w-2.5 shrink-0 rounded-full ring-4 ring-white",
-                activityToneClasses[item.tone],
-              )}
-            />
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-ink">{item.title}</p>
-              <p className="mt-0.5 text-[11px] leading-5 text-slate-500">
-                {item.description}
-              </p>
-              <p className="mt-1 text-[10px] text-slate-400">{item.time}</p>
-            </div>
-          </li>
-        ))}
-      </ol>
+      {activity.length ? (
+        <ol className="mt-4 space-y-0">
+          {activity.map((item, index) => (
+            <li key={item.id} className="relative flex gap-3 pb-4 last:pb-0">
+              {index < activity.length - 1 ? (
+                <span className="absolute left-[5px] top-3 h-full w-px bg-slate-100" />
+              ) : null}
+              <span
+                className={cn(
+                  "relative mt-1 h-2.5 w-2.5 shrink-0 rounded-full ring-4 ring-white",
+                  activityToneClasses[item.tone],
+                )}
+              />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-ink">{item.title}</p>
+                <p className="mt-0.5 text-[11px] leading-5 text-slate-500">
+                  {item.description}
+                </p>
+                <p className="mt-1 text-[10px] text-slate-400">{item.time}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <div className="mt-4">
+          <EmptyPanel message="No recent activity yet." />
+        </div>
+      )}
     </Card>
   );
 }
 
-export function AdminDashboard() {
+function DashboardSkeleton() {
   return (
     <div className="mx-auto max-w-[1400px] space-y-5">
-      <DashboardHero />
+      <div className="h-56 animate-pulse rounded-3xl bg-slate-200/60" />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div
+            key={index}
+            className="h-32 animate-pulse rounded-2xl bg-slate-200/60"
+          />
+        ))}
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[1.55fr_1fr]">
+        <div className="h-80 animate-pulse rounded-2xl bg-slate-200/60" />
+        <div className="h-80 animate-pulse rounded-2xl bg-slate-200/60" />
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[1.55fr_1fr]">
+        <div className="h-72 animate-pulse rounded-2xl bg-slate-200/60" />
+        <div className="h-72 animate-pulse rounded-2xl bg-slate-200/60" />
+      </div>
+    </div>
+  );
+}
+
+function DashboardError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="mx-auto max-w-[1400px]">
+      <div className="flex min-h-[360px] flex-col items-center justify-center rounded-3xl border border-rose-100 bg-white px-6 py-16 text-center shadow-sm">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-500 ring-1 ring-rose-100">
+          <AlertTriangleIcon className="h-6 w-6" />
+        </div>
+        <h2 className="mt-4 text-base font-semibold text-ink">
+          Unable to load dashboard
+        </h2>
+        <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
+          {message}
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className={buttonClasses("primary", "sm", "mt-5")}
+        >
+          Try again
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function AdminDashboardView({ data }: { data: AdminDashboardData }) {
+  const totalPatients = Number(
+    data.metrics.find((metric) => metric.label === "Total patients")?.value ?? 0,
+  );
+  const totalDoctors = Number(
+    data.metrics.find((metric) => metric.label === "Active doctors")?.value ??
+      data.careTeam.length,
+  );
+
+  return (
+    <div className="mx-auto max-w-[1400px] space-y-5">
+      <DashboardHero data={data} />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {adminDashboardMock.metrics.map((metric, index) => (
+        {data.metrics.map((metric, index) => (
           <MetricCard key={metric.label} metric={metric} index={index} />
         ))}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.55fr_1fr]">
-        <FollowUpChart />
-        <RiskMix />
+        <FollowUpChart series={data.followUpSeries} />
+        <RiskMix riskMix={data.riskMix} totalPatients={totalPatients} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.55fr_1fr]">
-        <RecentPatients />
-        <TodaySchedule />
+        <RecentPatients patients={data.recentPatients} />
+        <TodaySchedule appointments={data.appointments} />
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
-        <CareTeam />
-        <AttentionNeeded />
-        <ActivityFeed />
+        <CareTeam careTeam={data.careTeam} totalDoctors={totalDoctors} />
+        <AttentionNeeded alerts={data.alerts} />
+        <ActivityFeed activity={data.activity} />
       </section>
     </div>
   );
+}
+
+export function AdminDashboard() {
+  const [data, setData] = useState<AdminDashboardData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const result = await getAdminDashboard();
+        if (!cancelled) {
+          setData(result);
+          setError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof ApiError
+              ? err.message
+              : "Unable to load the dashboard. Please try again.",
+          );
+        }
+      }
+    }
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
+
+  if (error) {
+    return (
+      <DashboardError
+        message={error}
+        onRetry={() => {
+          setError(null);
+          setReloadKey((current) => current + 1);
+        }}
+      />
+    );
+  }
+
+  if (!data) {
+    return <DashboardSkeleton />;
+  }
+
+  return <AdminDashboardView data={data} />;
 }
