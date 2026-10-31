@@ -2,7 +2,7 @@ import type { TokenPair, User } from "@/types";
 
 const ACCESS_TOKEN_KEY = "cardio_access_token";
 const REFRESH_TOKEN_KEY = "cardio_refresh_token";
-const MOCK_USER_KEY = "cardio_mock_user";
+const USER_KEY = "cardio_user";
 
 export function getAccessToken(): string | null {
   if (typeof window === "undefined") {
@@ -23,19 +23,19 @@ export function setTokens(tokens: TokenPair): void {
   window.localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token);
 }
 
-export function setMockUser(user: User): void {
+export function setUser(user: User): void {
   if (typeof window === "undefined") {
     return;
   }
-  window.localStorage.setItem(MOCK_USER_KEY, JSON.stringify(user));
+  window.localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
-export function getMockUser(): User | null {
+export function getUser(): User | null {
   if (typeof window === "undefined") {
     return null;
   }
 
-  const storedUser = window.localStorage.getItem(MOCK_USER_KEY);
+  const storedUser = window.localStorage.getItem(USER_KEY);
   if (!storedUser) {
     return null;
   }
@@ -53,5 +53,5 @@ export function clearTokens(): void {
   }
   window.localStorage.removeItem(ACCESS_TOKEN_KEY);
   window.localStorage.removeItem(REFRESH_TOKEN_KEY);
-  window.localStorage.removeItem(MOCK_USER_KEY);
+  window.localStorage.removeItem(USER_KEY);
 }

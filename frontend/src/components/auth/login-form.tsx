@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,7 @@ const roleOptions = [
 ];
 
 export function LoginForm() {
+  const router = useRouter();
   const [role, setRole] = useState<UserRole>("admin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -56,6 +58,13 @@ export function LoginForm() {
 
     try {
       const user = await loginWithRole({ email, password, role });
+
+      if (user.role.name === "admin") {
+        router.replace("/admin/dashboard");
+        router.refresh();
+        return;
+      }
+
       setSignedInUser(user);
       setPassword("");
     } catch (err) {

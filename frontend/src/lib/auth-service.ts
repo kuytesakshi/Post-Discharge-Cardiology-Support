@@ -1,5 +1,5 @@
 import { apiFetch } from "@/lib/api";
-import { clearTokens, setMockUser, setTokens } from "@/lib/auth";
+import { clearTokens, setTokens, setUser } from "@/lib/auth";
 import { getRoleLabel } from "@/lib/roles";
 import type { TokenPair, User, UserRole } from "@/types";
 
@@ -22,7 +22,7 @@ export async function loginWithRole({
     const { mockLogin } = await import("@/lib/mock");
     const { tokens, user } = mockLogin(email, password, role);
     setTokens(tokens);
-    setMockUser(user);
+    setUser(user);
     return user;
   }
 
@@ -39,6 +39,7 @@ export async function loginWithRole({
         `This account signs in as ${getRoleLabel(user.role.name)}. Switch the role and try again.`,
       );
     }
+    setUser(user);
     return user;
   } catch (error) {
     clearTokens();
