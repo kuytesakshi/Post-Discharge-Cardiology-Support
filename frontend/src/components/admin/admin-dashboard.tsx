@@ -6,7 +6,6 @@ import {
   AlertTriangleIcon,
   ArrowUpRightIcon,
   CalendarIcon,
-  CheckIcon,
   ChevronRightIcon,
   ClockIcon,
   HeartPulseIcon,
@@ -440,12 +439,15 @@ function FollowUpChart() {
 function RiskMix() {
   const radius = 42;
   const circumference = 2 * Math.PI * radius;
-  let cumulative = 0;
-  const segments = adminDashboardMock.riskMix.map((slice) => {
+  const segments = adminDashboardMock.riskMix.map((slice, index) => {
     const length = (slice.value / 100) * circumference;
-    const segment = { ...slice, length, offset: cumulative };
-    cumulative += length;
-    return segment;
+    const offset = adminDashboardMock.riskMix
+      .slice(0, index)
+      .reduce(
+        (total, previous) => total + (previous.value / 100) * circumference,
+        0,
+      );
+    return { ...slice, length, offset };
   });
 
   return (

@@ -2,29 +2,27 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
 import { Logo } from "@/components/layout/logo";
 import {
   BellIcon,
-  CalendarIcon,
   ChevronRightIcon,
   CloseIcon,
-  FileTextIcon,
-  KeyIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   MenuIcon,
-  MessageSquareIcon,
   SearchIcon,
-  SettingsIcon,
   ShieldCheckIcon,
-  StethoscopeIcon,
-  UsersIcon,
 } from "@/components/ui/icons";
 import { clearTokens, getAccessToken, getUser } from "@/lib/auth";
 import { cn } from "@/lib/utils";
-import type { User } from "@/types";
 
 type NavItem = {
   href: string;
@@ -48,37 +46,24 @@ const navGroups: NavGroup[] = [
       },
     ],
   },
-  {
-    label: "Care operations",
-    items: [
-      { href: "/admin/patients", label: "Patients", icon: UsersIcon },
-      { href: "/admin/doctors", label: "Doctors", icon: StethoscopeIcon },
-      {
-        href: "/admin/appointments",
-        label: "Appointments",
-        icon: CalendarIcon,
-      },
-      { href: "/admin/queries", label: "Queries", icon: MessageSquareIcon },
-    ],
-  },
-  {
-    label: "Administration",
-    items: [
-      { href: "/admin/access", label: "Access control", icon: KeyIcon },
-      { href: "/admin/settings", label: "Settings", icon: SettingsIcon },
-    ],
-  },
 ];
 
 const pageTitles: Record<string, string> = {
   "/admin/dashboard": "Dashboard",
-  "/admin/patients": "Patients",
-  "/admin/doctors": "Doctors",
-  "/admin/appointments": "Appointments",
-  "/admin/queries": "Queries",
-  "/admin/access": "Access control",
-  "/admin/settings": "Settings",
 };
+
+function subscribeToClient(onStoreChange: () => void) {
+  window.addEventListener("storage", onStoreChange);
+  return () => window.removeEventListener("storage", onStoreChange);
+}
+
+function getClientSnapshot() {
+  return true;
+}
+
+function getServerSnapshot() {
+  return false;
+}
 
 function initials(name: string) {
   return name
@@ -112,27 +97,25 @@ function AdminShellSkeleton() {
 export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  const [isChecking, setIsChecking] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const isClient = useSyncExternalStore(
+    subscribeToClient,
+    getClientSnapshot,
+    getServerSnapshot,
+  );
+  const user = useMemo(() => (isClient ? getUser() : null), [isClient]);
+  const token = isClient ? getAccessToken() : null;
 
   useEffect(() => {
-    const token = getAccessToken();
-    const storedUser = getUser();
-
-    if (!token || storedUser?.role.name !== "admin") {
-      clearTokens();
-      router.replace("/login");
+    if (!isClient) {
       return;
     }
 
-    setUser(storedUser);
-    setIsChecking(false);
-  }, [router]);
-
-  useEffect(() => {
-    setIsMenuOpen(false);
-  }, [pathname]);
+    if (!token || user?.role.name !== "admin") {
+      clearTokens();
+      router.replace("/login");
+    }
+  }, [isClient, token, user, router]);
 
   function handleSignOut() {
     clearTokens();
@@ -140,7 +123,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
     router.refresh();
   }
 
-  if (isChecking || !user) {
+  if (!isClient || !user || user.role.name !== "admin") {
     return <AdminShellSkeleton />;
   }
 
@@ -167,6 +150,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <div className="flex items-center justify-between px-5 py-5">
           <Link
             href="/admin/dashboard"
+            onClick={() => setIsMenuOpen(false)}
             className="rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
           >
             <Logo tone="light" />
@@ -208,6 +192,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                     <Link
                       key={item.href}
                       href={item.href}
+                      onClick={() => setIsMenuOpen(false)}
                       aria-current={isActive ? "page" : undefined}
                       className={cn(
                         "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
