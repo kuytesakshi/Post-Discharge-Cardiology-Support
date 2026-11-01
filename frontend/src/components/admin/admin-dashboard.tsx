@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/icons";
 import { getAdminDashboard } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, getGreeting } from "@/lib/utils";
 import type {
   AdminActivity,
   AdminAlert,
@@ -258,7 +258,7 @@ function DashboardHero({ data }: { data: AdminDashboardData }) {
           </div>
 
           <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">
-            Good morning, {data.adminName}.
+            {getGreeting()}, {data.adminName}.
           </h1>
           <p className="mt-3 max-w-xl text-sm leading-6 text-emerald-50/65">
             Here&apos;s the pulse of your post-discharge program today. You have{" "}

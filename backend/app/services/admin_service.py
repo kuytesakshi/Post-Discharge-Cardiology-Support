@@ -21,7 +21,13 @@ from app.models import (
 from app.schemas.admin import (
     AdminDashboardRead,
     AdminDoctorCreate,
+    AdminDoctorOption,
     AdminPatientCreate,
+    AdminPatientDetailRead,
+    AdminPatientListItem,
+    AdminPatientListRead,
+    AdminPatientSummary,
+    AdminPatientUpdate,
     DashboardActivity,
     DashboardAlert,
     DashboardAppointment,
@@ -30,6 +36,12 @@ from app.schemas.admin import (
     DashboardPatient,
     FollowUpPoint,
     RiskSlice,
+)
+from app.schemas.patient import PatientProfileRead
+from app.schemas.user import UserRead
+from app.schemas.validators import (
+    resolve_consent_date,
+    validate_patient_date_relationships,
 )
 
 
@@ -52,6 +64,23 @@ async def _ensure_doctor_exists(
         raise ValueError(f"{label} does not reference an existing doctor")
 
 
+async def _ensure_mrn_available(
+    db: AsyncSession,
+    medical_record_number: str | None,
+    exclude_profile_id: uuid.UUID | None = None,
+) -> None:
+    if medical_record_number is None:
+        return
+    query = select(PatientProfile.id).where(
+        PatientProfile.medical_record_number == medical_record_number
+    )
+    if exclude_profile_id is not None:
+        query = query.where(PatientProfile.id != exclude_profile_id)
+    existing = await db.scalar(query)
+    if existing is not None:
+        raise ValueError("Medical record number is already in use")
+
+
 async def create_patient(
     db: AsyncSession,
     payload: AdminPatientCreate,
@@ -70,6 +99,11 @@ async def create_patient(
     attending_doctor_id = profile_data.get("attending_doctor_id")
     await _ensure_doctor_exists(db, primary_doctor_id, "Primary doctor")
     await _ensure_doctor_exists(db, attending_doctor_id, "Attending doctor")
+    await _ensure_mrn_available(db, profile_data.get("medical_record_number"))
+    profile_data["consent_date"] = resolve_consent_date(
+        bool(profile_data.get("consent_to_contact")),
+        profile_data.get("consent_date"),
+    )
     if attending_doctor_id is None:
         profile_data["attending_doctor_id"] = primary_doctor_id
     if payload.profile.medications is not None:
@@ -135,6 +169,37 @@ def _high_risk_filter():
     return or_(
         normalized.in_(["high", "very high", "severe"]),
         func.coalesce(PatientProfile.readmission_risk_score, 0) >= 10,
+    )
+
+
+def _follow_up_filter():
+    reason = func.lower(func.coalesce(Appointment.reason, ""))
+    return or_(
+        reason.like("%follow-up%"),
+        reason.like("%follow up%"),
+        reason.like("%followup%"),
+    )
+
+
+def _risk_bucket_expression():
+    normalized = func.lower(func.trim(func.coalesce(PatientProfile.readmission_risk, "")))
+    score = func.coalesce(PatientProfile.readmission_risk_score, 0)
+    return case(
+        (
+            or_(
+                normalized.in_(["high", "very high", "severe"]),
+                score >= 10,
+            ),
+            "high",
+        ),
+        (
+            or_(
+                normalized.in_(["moderate", "medium", "intermediate"]),
+                score >= 5,
+            ),
+            "moderate",
+        ),
+        else_="low",
     )
 
 
@@ -361,6 +426,7 @@ async def get_dashboard(db: AsyncSession, admin: User) -> AdminDashboardRead:
             select(func.count(Appointment.id)).where(
                 Appointment.scheduled_at >= today_start,
                 Appointment.scheduled_at < tomorrow_start,
+                _follow_up_filter(),
             )
         )
         or 0
@@ -371,6 +437,7 @@ async def get_dashboard(db: AsyncSession, admin: User) -> AdminDashboardRead:
                 Appointment.scheduled_at >= today_start,
                 Appointment.scheduled_at < tomorrow_start,
                 Appointment.status == AppointmentStatus.COMPLETED,
+                _follow_up_filter(),
             )
         )
         or 0
@@ -430,6 +497,7 @@ async def get_dashboard(db: AsyncSession, admin: User) -> AdminDashboardRead:
             .where(
                 Appointment.scheduled_at >= week_start,
                 Appointment.scheduled_at < week_end,
+                _follow_up_filter(),
             )
             .group_by(func.date(Appointment.scheduled_at))
         )
@@ -851,3 +919,336 @@ async def get_dashboard(db: AsyncSession, admin: User) -> AdminDashboardRead:
         alerts=alerts,
         activity=activity,
     )
+
+async def list_patients(
+    db: AsyncSession,
+    *,
+    search: str | None = None,
+    status: str | None = None,
+    risk: Literal["low", "moderate", "high"] | None = None,
+    doctor_id: uuid.UUID | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    sort: Literal["created_at", "name", "next_follow_up"] = "created_at",
+) -> AdminPatientListRead:
+    today = datetime.now(UTC).date()
+    patient_user = aliased(User)
+    primary_doctor = aliased(DoctorProfile)
+    primary_doctor_user = aliased(User)
+
+    filters = []
+    if search and search.strip():
+        pattern = f"%{search.strip()}%"
+        filters.append(
+            or_(
+                patient_user.name.ilike(pattern),
+                patient_user.email.ilike(pattern),
+                PatientProfile.medical_record_number.ilike(pattern),
+                PatientProfile.phone.ilike(pattern),
+            )
+        )
+    if status and status.strip():
+        filters.append(func.lower(PatientProfile.status) == status.strip().lower())
+    if risk is not None:
+        filters.append(_risk_bucket_expression() == risk)
+    if doctor_id is not None:
+        filters.append(
+            or_(
+                PatientProfile.primary_doctor_id == doctor_id,
+                PatientProfile.attending_doctor_id == doctor_id,
+            )
+        )
+
+    total = int(
+        await db.scalar(
+            select(func.count(PatientProfile.id))
+            .join(patient_user, PatientProfile.user_id == patient_user.id)
+            .where(*filters)
+        )
+        or 0
+    )
+
+    query = (
+        select(
+            PatientProfile,
+            patient_user,
+            primary_doctor_user.name.label("primary_doctor_name"),
+        )
+        .join(patient_user, PatientProfile.user_id == patient_user.id)
+        .outerjoin(
+            primary_doctor,
+            PatientProfile.primary_doctor_id == primary_doctor.id,
+        )
+        .outerjoin(
+            primary_doctor_user,
+            primary_doctor.user_id == primary_doctor_user.id,
+        )
+        .where(*filters)
+    )
+    if sort == "name":
+        query = query.order_by(patient_user.name.asc())
+    elif sort == "next_follow_up":
+        query = query.order_by(
+            PatientProfile.next_follow_up_date.asc().nulls_last(),
+            patient_user.name.asc(),
+        )
+    else:
+        query = query.order_by(PatientProfile.created_at.desc())
+
+    offset = (page - 1) * page_size
+    rows = (await db.execute(query.offset(offset).limit(page_size))).all()
+    items = [
+        AdminPatientListItem(
+            id=profile.id,
+            user_id=user.id,
+            name=user.name,
+            email=user.email,
+            medical_record_number=profile.medical_record_number,
+            age=_age(profile.date_of_birth, today),
+            gender=profile.gender,
+            phone=profile.phone,
+            primary_condition=profile.primary_condition,
+            readmission_risk=profile.readmission_risk,
+            readmission_risk_score=profile.readmission_risk_score,
+            risk=_risk_bucket(
+                profile.readmission_risk,
+                profile.readmission_risk_score,
+            ),
+            status=profile.status,
+            next_follow_up_date=profile.next_follow_up_date,
+            next_follow_up=_follow_up_label(profile.next_follow_up_date, today),
+            primary_doctor_id=profile.primary_doctor_id,
+            primary_doctor_name=doctor_name,
+            created_at=profile.created_at,
+        )
+        for profile, user, doctor_name in rows
+    ]
+
+    summary_total = int(
+        await db.scalar(select(func.count(PatientProfile.id))) or 0
+    )
+    summary_active = int(
+        await db.scalar(
+            select(func.count(PatientProfile.id)).where(
+                func.lower(func.coalesce(PatientProfile.status, "active"))
+                == "active"
+            )
+        )
+        or 0
+    )
+    summary_high_risk = int(
+        await db.scalar(
+            select(func.count(PatientProfile.id)).where(_high_risk_filter())
+        )
+        or 0
+    )
+    summary_overdue = int(
+        await db.scalar(
+            select(func.count(PatientProfile.id)).where(
+                PatientProfile.next_follow_up_date < today,
+                func.lower(func.coalesce(PatientProfile.status, "active"))
+                == "active",
+            )
+        )
+        or 0
+    )
+
+    return AdminPatientListRead(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=(total + page_size - 1) // page_size if total else 0,
+        summary=AdminPatientSummary(
+            total=summary_total,
+            active=summary_active,
+            high_risk=summary_high_risk,
+            overdue_follow_ups=summary_overdue,
+        ),
+    )
+
+
+async def get_patient(
+    db: AsyncSession,
+    patient_id: uuid.UUID,
+) -> AdminPatientDetailRead:
+    patient_user = aliased(User)
+    primary_doctor = aliased(DoctorProfile)
+    primary_doctor_user = aliased(User)
+    attending_doctor = aliased(DoctorProfile)
+    attending_doctor_user = aliased(User)
+
+    row = (
+        await db.execute(
+            select(
+                PatientProfile,
+                patient_user,
+                primary_doctor_user.name.label("primary_doctor_name"),
+                attending_doctor_user.name.label("attending_doctor_name"),
+            )
+            .join(patient_user, PatientProfile.user_id == patient_user.id)
+            .outerjoin(
+                primary_doctor,
+                PatientProfile.primary_doctor_id == primary_doctor.id,
+            )
+            .outerjoin(
+                primary_doctor_user,
+                primary_doctor.user_id == primary_doctor_user.id,
+            )
+            .outerjoin(
+                attending_doctor,
+                PatientProfile.attending_doctor_id == attending_doctor.id,
+            )
+            .outerjoin(
+                attending_doctor_user,
+                attending_doctor.user_id == attending_doctor_user.id,
+            )
+            .where(PatientProfile.id == patient_id)
+        )
+    ).first()
+    if row is None:
+        raise ValueError("Patient not found")
+
+    profile, user, primary_doctor_name, attending_doctor_name = row
+    return AdminPatientDetailRead(
+        user=UserRead.model_validate(user),
+        profile=PatientProfileRead.model_validate(profile),
+        primary_doctor_name=primary_doctor_name,
+        attending_doctor_name=attending_doctor_name,
+        risk=_risk_bucket(
+            profile.readmission_risk,
+            profile.readmission_risk_score,
+        ),
+    )
+
+
+async def update_patient(
+    db: AsyncSession,
+    patient_id: uuid.UUID,
+    payload: AdminPatientUpdate,
+) -> AdminPatientDetailRead:
+    profile = await db.get(PatientProfile, patient_id)
+    if profile is None:
+        raise ValueError("Patient not found")
+
+    user = await db.get(User, profile.user_id)
+    if user is None:
+        raise ValueError("Patient user not found")
+
+    if payload.email is not None:
+        email = str(payload.email).lower()
+        existing = await db.scalar(
+            select(User.id).where(
+                User.email == email,
+                User.id != user.id,
+            )
+        )
+        if existing is not None:
+            raise ValueError("Email is already registered")
+        user.email = email
+
+    if payload.name is not None:
+        user.name = payload.name
+
+    if payload.profile is not None:
+        profile_data = payload.profile.model_dump(exclude_unset=True)
+        if "primary_doctor_id" in profile_data:
+            await _ensure_doctor_exists(
+                db,
+                profile_data["primary_doctor_id"],
+                "Primary doctor",
+            )
+        if "attending_doctor_id" in profile_data:
+            await _ensure_doctor_exists(
+                db,
+                profile_data["attending_doctor_id"],
+                "Attending doctor",
+            )
+        if "medical_record_number" in profile_data:
+            await _ensure_mrn_available(
+                db,
+                profile_data["medical_record_number"],
+                profile.id,
+            )
+        effective_dob = (
+            profile_data["date_of_birth"]
+            if "date_of_birth" in profile_data
+            else profile.date_of_birth
+        )
+        effective_admission = (
+            profile_data["admission_date"]
+            if "admission_date" in profile_data
+            else profile.admission_date
+        )
+        effective_discharge = (
+            profile_data["discharge_date"]
+            if "discharge_date" in profile_data
+            else profile.discharge_date
+        )
+        effective_procedure = (
+            profile_data["procedure_date"]
+            if "procedure_date" in profile_data
+            else profile.procedure_date
+        )
+        effective_follow_up = (
+            profile_data["next_follow_up_date"]
+            if "next_follow_up_date" in profile_data
+            else profile.next_follow_up_date
+        )
+        validate_patient_date_relationships(
+            date_of_birth=effective_dob,
+            admission_date=effective_admission,
+            discharge_date=effective_discharge,
+            procedure_date=effective_procedure,
+            next_follow_up_date=effective_follow_up,
+        )
+        effective_consent = (
+            profile_data["consent_to_contact"]
+            if "consent_to_contact" in profile_data
+            else profile.consent_to_contact
+        )
+        effective_consent_date = (
+            profile_data["consent_date"]
+            if "consent_date" in profile_data
+            else profile.consent_date
+        )
+        profile_data["consent_date"] = resolve_consent_date(
+            effective_consent,
+            effective_consent_date,
+        )
+        if payload.profile.medications is not None:
+            profile_data["medications"] = [
+                medication.model_dump(mode="json")
+                for medication in payload.profile.medications
+            ]
+        for key, value in profile_data.items():
+            setattr(profile, key, value)
+
+    await db.commit()
+    return await get_patient(db, patient_id)
+
+
+async def list_doctor_options(
+    db: AsyncSession,
+) -> list[AdminDoctorOption]:
+    doctor_user = aliased(User)
+    rows = (
+        await db.execute(
+            select(DoctorProfile, doctor_user)
+            .join(doctor_user, DoctorProfile.user_id == doctor_user.id)
+            .where(
+                func.lower(func.coalesce(DoctorProfile.status, "active"))
+                == "active"
+            )
+            .order_by(doctor_user.name.asc())
+        )
+    ).all()
+    return [
+        AdminDoctorOption(
+            id=profile.id,
+            name=_doctor_display_name(profile.title, user.name),
+            specialty=profile.specialty,
+            status=profile.status or "active",
+        )
+        for profile, user in rows
+    ]

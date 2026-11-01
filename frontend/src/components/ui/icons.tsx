@@ -301,6 +301,27 @@ export function UserPlusIcon(props: IconProps) {
   );
 }
 
+export function UserXIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M15 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="8.5" cy="7" r="4" />
+      <path d="m17 8 5 5" />
+      <path d="m22 8-5 5" />
+    </IconBase>
+  );
+}
+
+export function UserCheckIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M15 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="8.5" cy="7" r="4" />
+      <path d="m17 11 2 2 4-4" />
+    </IconBase>
+  );
+}
+
 export function FileTextIcon(props: IconProps) {
   return (
     <IconBase {...props}>
@@ -327,6 +348,42 @@ export function ChevronRightIcon(props: IconProps) {
   return (
     <IconBase {...props}>
       <path d="m9 18 6-6-6-6" />
+    </IconBase>
+  );
+}
+
+export function ChevronLeftIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m15 18-6-6 6-6" />
+    </IconBase>
+  );
+}
+
+export function RefreshIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M20 11a8 8 0 0 0-14.9-3.7L3 10" />
+      <path d="M3 4v6h6" />
+      <path d="M4 13a8 8 0 0 0 14.9 3.7L21 14" />
+      <path d="M21 20v-6h-6" />
+    </IconBase>
+  );
+}
+
+export function PencilIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </IconBase>
+  );
+}
+
+export function PhoneIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9a2 2 0 0 1-.5 2.1L8 10a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.9.6 2.9.7a2 2 0 0 1 1.7 2Z" />
     </IconBase>
   );
 }

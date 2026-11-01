@@ -20,6 +20,7 @@ import {
   MenuIcon,
   SearchIcon,
   ShieldCheckIcon,
+  UsersIcon,
 } from "@/components/ui/icons";
 import { clearTokens, getAccessToken, getUser } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -46,10 +47,21 @@ const navGroups: NavGroup[] = [
       },
     ],
   },
+  {
+    label: "Care operations",
+    items: [
+      {
+        href: "/admin/patients",
+        label: "Patient Master",
+        icon: UsersIcon,
+      },
+    ],
+  },
 ];
 
 const pageTitles: Record<string, string> = {
   "/admin/dashboard": "Dashboard",
+  "/admin/patients": "Patient Master",
 };
 
 function subscribeToClient(onStoreChange: () => void) {

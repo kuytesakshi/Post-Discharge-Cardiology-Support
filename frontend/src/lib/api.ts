@@ -4,13 +4,25 @@ const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1"
 ).replace(/\/$/, "");
 
+export type ApiErrorDetail = {
+  loc?: (string | number)[];
+  msg?: string;
+  type?: string;
+};
+
 export class ApiError extends Error {
   status: number;
+  details?: ApiErrorDetail[];
 
-  constructor(message: string, status: number) {
+  constructor(
+    message: string,
+    status: number,
+    details?: ApiErrorDetail[],
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -47,18 +59,25 @@ export async function apiFetch<T>(
       detail?: unknown;
     } | null;
     const detail = data?.detail;
+    const details = Array.isArray(detail)
+      ? (detail as ApiErrorDetail[])
+      : undefined;
     const message =
       typeof detail === "string"
         ? detail
-        : Array.isArray(detail)
-          ? detail
+        : details
+          ? details
               .map((item) =>
                 typeof item?.msg === "string" ? item.msg : undefined,
               )
               .filter(Boolean)
               .join(" ")
           : response.statusText;
-    throw new ApiError(message || "Request failed", response.status);
+    throw new ApiError(
+      message || "Request failed",
+      response.status,
+      details,
+    );
   }
 
   if (response.status === 204) {

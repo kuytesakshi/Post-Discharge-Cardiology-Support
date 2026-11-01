@@ -1,7 +1,24 @@
 from datetime import date, datetime
+from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.schemas.validators import (
+    validate_address_text,
+    validate_choice,
+    validate_date_not_future,
+    validate_date_of_birth,
+    validate_medical_text,
+    validate_mrn,
+    validate_patient_date_relationships,
+    validate_person_name,
+    validate_phone,
+    validate_place_text,
+    validate_postal_code,
+    validate_provider_name,
+    validate_text_length,
+)
 
 
 class PatientMedication(BaseModel):
@@ -112,7 +129,137 @@ class PatientProfileBase(BaseModel):
     onboarding_completed_at: datetime | None = None
 
 
-class PatientProfileUpdate(PatientProfileBase):
+class PatientProfileWrite(PatientProfileBase):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    readmission_risk_score: int | None = Field(default=None, ge=0, le=10)
+
+    @field_validator("medical_record_number")
+    @classmethod
+    def _validate_medical_record_number(cls, value: str | None) -> str | None:
+        return validate_mrn(value)
+
+    @field_validator("status")
+    @classmethod
+    def _validate_status(cls, value: str) -> str:
+        normalized = validate_choice(value, "Status", {"active", "discharged", "inactive"})
+        if normalized is None:
+            raise ValueError("Status is required")
+        return normalized
+
+    @field_validator("date_of_birth")
+    @classmethod
+    def _validate_date_of_birth(cls, value: date | None) -> date | None:
+        return validate_date_of_birth(value)
+
+    @field_validator("gender")
+    @classmethod
+    def _validate_gender(cls, value: str | None) -> str | None:
+        return validate_choice(
+            value,
+            "Gender",
+            {"female", "male", "non_binary", "prefer_not_to_say"},
+        )
+
+    @field_validator(
+        "phone",
+        "alternate_phone",
+        "emergency_contact_phone",
+        "caregiver_phone",
+        "primary_care_physician_phone",
+    )
+    @classmethod
+    def _validate_phone(cls, value: str | None) -> str | None:
+        return validate_phone(value, "Phone")
+
+    @field_validator("preferred_language")
+    @classmethod
+    def _validate_preferred_language(cls, value: str | None) -> str | None:
+        return validate_place_text(value, "Preferred language")
+
+    @field_validator("preferred_contact_method")
+    @classmethod
+    def _validate_preferred_contact_method(cls, value: str | None) -> str | None:
+        return validate_choice(
+            value,
+            "Preferred contact method",
+            {"phone", "sms", "email", "portal"},
+        )
+
+    @field_validator("address_line1", "address_line2")
+    @classmethod
+    def _validate_address_line(cls, value: str | None) -> str | None:
+        return validate_address_text(value, "Address")
+
+    @field_validator("city", "state", "country")
+    @classmethod
+    def _validate_place(cls, value: str | None) -> str | None:
+        return validate_place_text(value, "Location")
+
+    @field_validator("postal_code")
+    @classmethod
+    def _validate_postal_code(cls, value: str | None) -> str | None:
+        return validate_postal_code(value)
+
+    @field_validator("emergency_contact_name", "caregiver_name")
+    @classmethod
+    def _validate_person_name(cls, value: str | None) -> str | None:
+        return validate_person_name(value, "Name")
+
+    @field_validator(
+        "discharging_physician_name",
+        "primary_care_physician_name",
+    )
+    @classmethod
+    def _validate_provider_name(cls, value: str | None) -> str | None:
+        return validate_provider_name(value, "Physician name")
+
+    @field_validator("emergency_contact_relationship", "caregiver_relationship")
+    @classmethod
+    def _validate_relationship(cls, value: str | None) -> str | None:
+        return validate_person_name(value, "Relationship")
+
+    @field_validator("admission_date", "discharge_date", "procedure_date", "consent_date")
+    @classmethod
+    def _validate_not_future(cls, value: date | None) -> date | None:
+        return validate_date_not_future(value, "Date")
+
+    @field_validator("primary_condition", "procedure_name")
+    @classmethod
+    def _validate_medical_text(cls, value: str | None) -> str | None:
+        return validate_medical_text(value, "Medical text")
+
+    @field_validator(
+        "discharge_diagnosis",
+        "device_details",
+        "activity_restrictions",
+        "diet_instructions",
+        "home_monitoring_instructions",
+        "follow_up_plan",
+        "clinical_notes",
+    )
+    @classmethod
+    def _validate_long_text(cls, value: str | None) -> str | None:
+        return validate_text_length(value, "Text", 5000)
+
+    @field_validator("readmission_risk")
+    @classmethod
+    def _validate_readmission_risk(cls, value: str | None) -> str | None:
+        return validate_choice(value, "Readmission risk", {"low", "moderate", "high"})
+
+    @model_validator(mode="after")
+    def _validate_dates(self) -> Self:
+        validate_patient_date_relationships(
+            date_of_birth=self.date_of_birth,
+            admission_date=self.admission_date,
+            discharge_date=self.discharge_date,
+            procedure_date=self.procedure_date,
+            next_follow_up_date=self.next_follow_up_date,
+        )
+        return self
+
+
+class PatientProfileUpdate(PatientProfileWrite):
     pass
 
 

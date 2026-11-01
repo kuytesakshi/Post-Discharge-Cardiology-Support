@@ -146,7 +146,7 @@ def test_admin_creates_patient_and_patient_logs_in(client: TestClient) -> None:
                 "follow_up_plan": "Cardiology follow-up in 1 week",
                 "next_follow_up_date": "2026-10-27",
                 "readmission_risk": "High",
-                "readmission_risk_score": 12,
+                "readmission_risk_score": 10,
                 "clinical_notes": "Patient stable at discharge",
                 "consent_to_contact": True,
                 "consent_date": "2026-10-20",

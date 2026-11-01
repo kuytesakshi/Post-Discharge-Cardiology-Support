@@ -1,6 +1,8 @@
 import asyncio
+import random
+import string
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,6 +28,83 @@ async def _delete_test_users() -> None:
     async with engine.begin() as connection:
         await connection.execute(text("DELETE FROM users WHERE email LIKE 'pytest-%'"))
     await engine.dispose()
+
+
+async def _insert_follow_up_test_appointments() -> list[uuid.UUID] | None:
+    engine = create_async_engine(settings.database_url)
+    try:
+        async with engine.begin() as connection:
+            patient_id = (
+                await connection.execute(
+                    text("SELECT id FROM patient_profiles ORDER BY created_at LIMIT 1")
+                )
+            ).scalar_one_or_none()
+            doctor_id = (
+                await connection.execute(
+                    text("SELECT id FROM doctor_profiles ORDER BY created_at LIMIT 1")
+                )
+            ).scalar_one_or_none()
+            if patient_id is None or doctor_id is None:
+                return None
+
+            day = datetime.now(UTC).date()
+            base = datetime.combine(day, time(23, 0), tzinfo=UTC) + timedelta(
+                seconds=uuid.uuid4().int % 3000
+            )
+            appointments = [
+                (
+                    uuid.uuid4(),
+                    base,
+                    "Follow-up",
+                ),
+                (
+                    uuid.uuid4(),
+                    base + timedelta(minutes=1),
+                    "Medication review",
+                ),
+            ]
+            for appointment_id, scheduled_at, reason in appointments:
+                await connection.execute(
+                    text(
+                        "INSERT INTO appointments "
+                        "(id, patient_id, doctor_id, scheduled_at, duration_minutes, "
+                        "status, reason, created_at, updated_at) "
+                        "VALUES (:id, :patient_id, :doctor_id, :scheduled_at, 30, "
+                        "CAST(:status AS appointment_status), :reason, "
+                        ":created_at, :updated_at)"
+                    ),
+                    {
+                        "id": appointment_id,
+                        "patient_id": patient_id,
+                        "doctor_id": doctor_id,
+                        "scheduled_at": scheduled_at,
+                        "status": "pending",
+                        "reason": reason,
+                        "created_at": scheduled_at,
+                        "updated_at": scheduled_at,
+                    },
+                )
+            return [appointment_id for appointment_id, _, _ in appointments]
+    finally:
+        await engine.dispose()
+
+
+async def _delete_appointments(appointment_ids: list[uuid.UUID]) -> None:
+    engine = create_async_engine(settings.database_url)
+    try:
+        async with engine.begin() as connection:
+            for appointment_id in appointment_ids:
+                await connection.execute(
+                    text("DELETE FROM appointments WHERE id = :id"),
+                    {"id": appointment_id},
+                )
+    finally:
+        await engine.dispose()
+
+
+def _metric_value(body: dict, label: str) -> int:
+    metric = next(item for item in body["metrics"] if item["label"] == label)
+    return int(metric["value"])
 
 
 def _login(client: TestClient, email: str, password: str) -> dict:
@@ -68,7 +147,7 @@ def test_dashboard_includes_created_patient_and_derived_alerts(
     client: TestClient,
 ) -> None:
     email = f"pytest-patient-{uuid.uuid4().hex}@example.com"
-    name = f"Dashboard Patient {uuid.uuid4().hex[:6]}"
+    name = f"Dashboard Patient {''.join(random.choices(string.ascii_uppercase, k=6))}"
     overdue_date = (date.today() - timedelta(days=2)).isoformat()
 
     created = client.post(
@@ -82,7 +161,7 @@ def test_dashboard_includes_created_patient_and_derived_alerts(
                 "status": "active",
                 "primary_condition": "Heart failure",
                 "readmission_risk": "High",
-                "readmission_risk_score": 12,
+                "readmission_risk_score": 10,
                 "next_follow_up_date": overdue_date,
             },
         },
@@ -105,6 +184,35 @@ def test_dashboard_includes_created_patient_and_derived_alerts(
     alert_ids = {alert["id"] for alert in body["alerts"]}
     assert "overdue-follow-ups" in alert_ids
     assert "high-risk-patients" in alert_ids
+
+
+def test_dashboard_follow_ups_exclude_other_visit_types(
+    client: TestClient,
+) -> None:
+    headers = _admin_headers(client)
+    before = client.get("/api/v1/admin/dashboard", headers=headers)
+    assert before.status_code == 200, before.text
+    before_body = before.json()
+
+    appointment_ids = asyncio.run(_insert_follow_up_test_appointments())
+    if appointment_ids is None:
+        pytest.skip("Demo patient/doctor data is not available")
+
+    try:
+        after = client.get("/api/v1/admin/dashboard", headers=headers)
+        assert after.status_code == 200, after.text
+        after_body = after.json()
+
+        assert _metric_value(after_body, "Follow-ups today") == (
+            _metric_value(before_body, "Follow-ups today") + 1
+        )
+
+        before_today = before_body["followUpSeries"][-1]
+        after_today = after_body["followUpSeries"][-1]
+        assert after_today["scheduled"] == before_today["scheduled"] + 1
+        assert after_today["completed"] == before_today["completed"]
+    finally:
+        asyncio.run(_delete_appointments(appointment_ids))
 
 
 def test_dashboard_requires_admin(client: TestClient) -> None:
